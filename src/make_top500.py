@@ -19,7 +19,7 @@ from train_model import GROUPS, add_assigner_group, fit_score, rank_avg
 
 READABLE = {
     "any_flag": "public exploit code", "epss_top1": "EPSS in top 1% this month",
-    "epss_top10": "EPSS in top 10% this month", "edge_product": "named edge/VPN product",
+    "epss_top10": "EPSS in top 10% this month", "edge_product": "named edge, VPN or IT-management product",
     "edge_word": "edge device (VPN/firewall/gateway)", "desc_pre_auth": "no login needed (description)",
     "cvss_pre_auth_remote": "remote, no login, no click (CVSS)", "mentions_rce": "remote code execution",
     "vendor_kev_12m": "vendor on KEV in the past year", "bug_deserialization": "deserialization bug",
@@ -34,6 +34,9 @@ READABLE = {
 def reasons(Xb, w, top=3):
     """Top positive naive-Bayes contributions per row, in plain words."""
     contrib = Xb * (w["w_on"] - w["w_off"])
+    # Exploit code and EPSS top almost every pick and have their own columns,
+    # so the reasons list what else sets this CVE apart.
+    contrib[["any_flag", "epss_top1", "epss_top10"]] = 0
     # Keep only the stronger of overlapping signals.
     contrib.loc[contrib["epss_top1"] > 0, "epss_top10"] = 0
     contrib.loc[contrib["edge_product"] > 0, "edge_word"] = 0
@@ -63,14 +66,41 @@ def main():
 
     rng = np.random.default_rng(0)
     order = np.lexsort((rng.random(len(sb)), -sb["score"].to_numpy()))
-    top = sb.iloc[order[:500]].copy()
-    top["rank"] = np.arange(1, 501)
+    sb["our_rank"] = 0
+    sb.iloc[order, sb.columns.get_loc("our_rank")] = np.arange(1, len(sb) + 1)
+
+    # Context for the app and the explainer: raw CVSS (not imputed) and its rank,
+    # and the cleaned description (exploitation wording already stripped).
+    raw = pd.read_parquet(CACHE / "vulnerabilities.parquet", columns=["cve_id", "cvss3_score", "published"])
+    raw = raw.rename(columns={"cvss3_score": "cvss3_raw", "published": "published_date"})
+    sb = sb.merge(raw, on="cve_id", how="left")
+    sb["cvss_rank"] = sb["cvss3_raw"].rank(ascending=False, method="min").astype("Int64")
+    sb.to_parquet(CACHE / "scored_2026.parquet", index=False)
+
+    top = sb.sort_values("our_rank").head(500).copy()
+    top["rank"] = top["our_rank"]
     top["reasons"] = reasons(Xb.loc[top.index], w)
+    top["description"] = top["desc"].str.replace(r"\s+", " ", regex=True).str.strip()
+
+    # Display only, never a model feature: product names from NVD's CPE records
+    # (filled in after NVD analysis), falling back to the KEV-vendor match.
+    cpe = pd.read_parquet(CACHE / "affected_products.parquet", columns=["cve_id", "vendor", "product"])
+    cpe = cpe[cpe["cve_id"].isin(top["cve_id"])].merge(top[["cve_id", "description"]], on="cve_id")
+    # Several products per CVE: prefer the one the description names, then the most common.
+    cpe["named"] = [str(p).replace("_", " ").lower() in d.lower() for p, d in zip(cpe["product"], cpe["description"])]
+    cpe["n"] = cpe.groupby(["cve_id", "product"])["product"].transform("size")
+    cpe = cpe.sort_values(["named", "n"], ascending=False).groupby("cve_id").first()
+    nice = lambda s: s.fillna("").str.replace("_", " ")
+    top["vendor_display"] = nice(top["cve_id"].map(cpe["vendor"])).replace("", None).fillna(
+        top["vendor_matched"].replace("", None).str.split(",").str[0].str.lower()).fillna("")
+    top["product_display"] = nice(top["cve_id"].map(cpe["product"]))
 
     OUTPUTS.mkdir(exist_ok=True)
     top[["cve_id"]].to_csv(OUTPUTS / "top500.csv", index=False)
-    detail_cols = ["rank", "cve_id", "snapshot_month", "score", "gb_prob", "nb_score", "granite_prior",
-                   "epss", "any_flag", "vendor_matched", "cwe_group", "reasons"]
+    detail_cols = ["rank", "cve_id", "snapshot_month", "published_date", "score", "gb_prob", "nb_score",
+                   "granite_prior", "epss", "epss_pct_month", "exploitdb", "metasploit", "nuclei", "poc_github",
+                   "cvss3_raw", "cvss_rank", "vendor_matched", "vendor_display", "product_display", "cwe_group",
+                   "is_edge_device", "reasons", "description"]
     top[detail_cols].to_csv(OUTPUTS / "top500_detail.csv", index=False)
 
     # Validate the submission file.

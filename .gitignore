@@ -2,7 +2,7 @@
 data_cache/
 *.zip
 *.csv
-!outputs/top500.csv
+!outputs/*.csv
 
 # Python
 __pycache__/

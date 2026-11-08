@@ -13,7 +13,7 @@ import pandas as pd
 from sklearn.ensemble import HistGradientBoostingClassifier
 
 from backtest import baseline_scores, evaluate
-from config import CACHE
+from config import CACHE, OUTPUTS
 from features import BUG_TYPES, CVSS_PARTS
 from nb_score import binarize, fit as nb_fit, score as nb_score
 
@@ -94,6 +94,7 @@ if __name__ == "__main__":
     rows.append(evaluate(test, rank_avg(gb, nb, test["granite_prior"].to_numpy()), "Blend: boosting(+Granite) + NB + prior"))
     print("Honest 2025 backtest (fit on 2024):")
     print(pd.DataFrame(rows).to_string(index=False))
+    pd.DataFrame(rows).to_csv(OUTPUTS / "backtest_results.csv", index=False)
 
     print("\nAblation: drop one feature group at a time (gradient boosting)")
     abl = []
@@ -114,3 +115,4 @@ if __name__ == "__main__":
     s, _ = fit_score(tr_l, te_l, GROUPS["signals"] + LEAKY)
     leak_rows.append(evaluate(te_l, s, "signals + leaky only", n_boot=300))
     print(pd.DataFrame(leak_rows).drop(columns=["per_month"]).to_string(index=False))
+    pd.DataFrame(leak_rows).to_csv(OUTPUTS / "leakage_audit.csv", index=False)

@@ -20,10 +20,24 @@ Status: work in progress.
    python src/convert_parquet.py
    ```
 
-4. Reproduce the exploration:
+4. Rebuild everything, in order:
 
    ```sh
-   python src/explore.py
+   python src/explore.py          # KEV exploration
+   python src/features.py         # feature tables for 2024, 2025, 2026 and the training folds
+   python src/granite_embed.py    # Granite embeddings of every description (~15 min on a laptop)
+   python src/granite_prior.py    # exploitability prior learned from the embeddings
+   python src/train_model.py      # honest 2025 backtest, ablation, leakage audit
+   python src/make_top500.py      # outputs/top500.csv
+   python src/watsonx_explain.py  # optional: Granite on watsonx.ai writes "why fix this first"
+   ```
+
+   `watsonx_explain.py` reads `WATSONX_APIKEY`, `WATSONX_PROJECT_ID` and `WATSONX_URL` from `.env`.
+
+5. Open the demo app:
+
+   ```sh
+   streamlit run app/app.py
    ```
 
 ## Layout
@@ -33,8 +47,15 @@ Status: work in progress.
 | `src/config.py` | Paths and cutoff dates |
 | `src/convert_parquet.py` | CSV to Parquet conversion |
 | `src/explore.py` | KEV exploration: repeat offenders, slow subset, time-window curve |
-| `notebooks/` | Scratch analysis |
-| `outputs/` | `top500.csv` and figures |
+| `src/backtest.py` | Scoreboard-shaped backtest frames, baselines, hits@500 with bootstrap ranges |
+| `src/features.py` | Features known at snapshot time (signals, CVSS, description flags, bug types, vendor KEV history) |
+| `src/nb_score.py` | Naive Bayes over binary features; its weights become the plain-word reasons |
+| `src/granite_embed.py`, `src/granite_prior.py` | Granite embeddings and the exploitability prior built on them |
+| `src/train_model.py` | Gradient boosting, blends, ablation, leakage audit |
+| `src/make_top500.py` | Final model and the submission file |
+| `src/watsonx_explain.py` | Granite on watsonx.ai: one-line explanation per pick |
+| `app/app.py` | Streamlit demo: this week's list, ours vs CVSS, findings |
+| `outputs/` | `top500.csv` (submission), `top500_detail.csv`, backtest and leakage results |
 
 ## Leakage policy
 
