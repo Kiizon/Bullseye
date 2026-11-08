@@ -1,0 +1,11 @@
+pandas>=3.1
+numpy>=2.5
+pyarrow>=26.0
+scikit-learn
+lightgbm
+shap
+sentence-transformers
+transformers
+torch
+streamlit
+ibm-watsonx-ai

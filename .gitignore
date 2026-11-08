@@ -1,0 +1,17 @@
+# Data stays out of the repo (data.zip is ~850 MB)
+data_cache/
+*.zip
+*.csv
+!outputs/top500.csv
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.ipynb_checkpoints/
+
+# Secrets (watsonx API key goes in .env, never committed)
+.env
+.env.*
+
+.DS_Store
