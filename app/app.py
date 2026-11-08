@@ -13,6 +13,7 @@ import streamlit as st
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "src"))
 from config import CACHE, OUTPUTS  # noqa: E402
+APP_DATA = Path(__file__).resolve().parent / "data"
 
 st.set_page_config(page_title="Bullseye: patch what attackers will hit", layout="wide")
 
@@ -46,7 +47,13 @@ def bars(df, label, value, text, title, color=None, blue=None, tooltip=None, hei
 @st.cache_data
 def load(stamp):
     """stamp = output file times, so the cache refreshes when the pipeline reruns."""
-    scored = pd.read_parquet(CACHE / "scored_2026.parquet")
+    # Full pipeline cache when present; otherwise the slim copies in app/data (used by the hosted app).
+    if (CACHE / "scored_2026.parquet").exists():
+        scored = pd.read_parquet(CACHE / "scored_2026.parquet")
+        feats = pd.concat([pd.read_parquet(CACHE / f"features_{y}.parquet") for y in (2024, 2025)])
+    else:
+        scored = pd.read_parquet(APP_DATA / "scored_2026.parquet")
+        feats = pd.read_parquet(APP_DATA / "features_2024_2025.parquet")
     top = pd.read_csv(OUTPUTS / "top500_detail.csv")
     why_path = OUTPUTS / "why_fix.csv"
     if why_path.exists():
@@ -66,7 +73,6 @@ def load(stamp):
     scored["base_rank"] = base.rank(ascending=False, method="first")
     bt = pd.read_csv(OUTPUTS / "backtest_results.csv")
     leak = pd.read_csv(OUTPUTS / "leakage_audit.csv")
-    feats = pd.concat([pd.read_parquet(CACHE / f"features_{y}.parquet") for y in (2024, 2025)])
     return scored, top, bt, leak, feats
 
 

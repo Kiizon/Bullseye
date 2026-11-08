@@ -1,0 +1,5 @@
+# Only what the demo app needs (Streamlit Community Cloud reads this file first).
+streamlit==1.67.0
+altair==6.3.0
+pandas>=2.2,<2.4
+pyarrow
