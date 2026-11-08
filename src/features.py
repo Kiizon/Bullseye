@@ -156,21 +156,26 @@ def assigner_vendor(assigner):
                                   "vulncheck", "trendmicro", "huntr", "incibe", "jpcert", "dhs", "cert"} else None
 
 
-def add_vendor_history(df, kev):
+def add_vendor_history(df, kev, kev_cap=KEV_DATA_END):
     """Hunch 3: KEV entries for the CVE's vendor in the 12 and 36 months up to
     the snapshot (capped at the end of KEV data). Vendor = KEV vendor names
     found in the description, plus the assigner's domain when it is a vendor."""
     kev = kev.assign(v=kev["vendor"].map(_norm))
     kev_dates = {v: np.sort(g["date_added"].to_numpy()) for v, g in kev.groupby("v")}
-    names = sorted({n for n in kev["vendor"].dropna().unique() if len(_norm(n)) >= 3 and n != "Multiple"}, key=len, reverse=True)
-    pattern = re.compile(r"\b(" + "|".join(re.escape(n) for n in names) + r")\b", re.I)
+    # Generic language/tool names appear in countless unrelated descriptions
+    # ("a PHP application", "git clone"), so they can't identify the vendor.
+    ambiguous = {"Multiple", "PHP", "Git", "Docker", "Sudo", "Python", "Java", "JavaScript", "jQuery", "Node.js"}
+    names = sorted({n for n in kev["vendor"].dropna().unique() if len(_norm(n)) >= 3 and n not in ambiguous},
+                   key=len, reverse=True)
+    # Case-sensitive on purpose: "PHP" the vendor, not "upload.php"; "Git", not "git clone".
+    pattern = re.compile(r"(?<![\w.])(" + "|".join(re.escape(n) for n in names) + r")(?![\w])")
 
     found = df["desc"].str.findall(pattern).map(lambda xs: {_norm(x) for x in xs})
     from_assigner = df["assigner"].map(assigner_vendor)
     vendors = [f | ({a} if a in kev_dates else set()) for f, a in zip(found, from_assigner)]
 
     snap_end = pd.PeriodIndex(df["snapshot_month"], freq="M").end_time.normalize()
-    window_end = np.minimum(snap_end.to_numpy(), np.datetime64(KEV_DATA_END))
+    window_end = np.minimum(snap_end.to_numpy(), np.datetime64(pd.Timestamp(kev_cap)))
     out = {"vendor_kev_12m": [], "vendor_kev_36m": [], "vendor_kev_ever": []}
     for vs, end in zip(vendors, window_end):
         best = {"vendor_kev_12m": 0, "vendor_kev_36m": 0, "vendor_kev_ever": 0}
@@ -201,19 +206,39 @@ def build():
     modes = {c: train_like[c].mode().iat[0] for c in CVSS_PARTS}
     modes["cvss3_score"] = float(train_like["cvss3_score"].median())
 
-    for year, df in frames.items():
-        df = add_nvd(df, vulns)
+    keep = list(frames[2024].columns)
+    full_year = range(1, 13)
+    # name -> (frame, cap on KEV history, year tag)
+    jobs = {
+        # Scoreboard-shaped sets (used by hunch_check.py).
+        "2024": (frames[2024], KEV_DATA_END, 2024),
+        "2025": (frames[2025], KEV_DATA_END, 2025),
+        "2026": (frames[2026], KEV_DATA_END, 2026),
+        # Honest fold that mirrors 2026: the model only knows KEV up to the
+        # end of the prior year, exactly as we only know KEV to Dec 2025.
+        "train2024": (make_frame(2024, cutoff="2024-12-31", months=full_year)[keep], "2024-12-31", 2024),
+        "test2025": (frames[2025], "2024-12-31", 2025),
+        # Final model for the scoreboard: every 2024-2025 CVE, labels to Dec 2025.
+        "trainfinal": (pd.concat([
+            make_frame(2024, cutoff="2025-12-31", months=full_year)[keep],
+            make_frame(2025, cutoff="2025-12-31", months=full_year)[keep],
+        ], ignore_index=True), KEV_DATA_END, None),
+    }
+
+    for name, (df, kev_cap, year) in jobs.items():
+        df = add_nvd(df.copy(), vulns)
         df = add_signal_features(df)
         df = add_cvss_features(df, modes)
         df = add_text_features(df)
-        df = add_vendor_history(df, kev)
-        df["year"] = year
+        df = add_vendor_history(df, kev, kev_cap)
+        df["year"] = year if year else df["published"].dt.year
         df = df.drop(columns=["description", "desc_raw"])
-        df.to_parquet(CACHE / f"features_{year}.parquet", index=False)
+        df.to_parquet(CACHE / f"features_{name}.parquet", index=False)
         lab = df["label"]
         stripped = df["exploit_wording_stripped"]
-        print(f"{year}: {len(df):,} rows | exploit wording stripped from {stripped.sum():,} descriptions"
-              + (f" ({int(lab[stripped].sum())} of them positives)" if lab.notna().any() else ""))
+        print(f"{name:10s}: {len(df):,} rows, {int(lab.sum()) if lab.notna().any() else '?'} positives | "
+              f"exploit wording stripped from {stripped.sum():,}"
+              + (f" ({int(lab[stripped].sum())} positives)" if lab.notna().any() else ""))
 
 
 if __name__ == "__main__":

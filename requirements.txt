@@ -1,6 +1,7 @@
-pandas>=3.1
-numpy>=2.5
-pyarrow>=26.0
+# pandas stays below 2.4 because ibm-watsonx-ai requires it on Python < 3.14
+pandas>=2.2,<2.4
+numpy
+pyarrow
 scikit-learn
 lightgbm
 shap
@@ -9,3 +10,4 @@ transformers
 torch
 streamlit
 ibm-watsonx-ai
+python-dotenv
