@@ -27,7 +27,7 @@ Bullseye ranks the 72,670 vulnerabilities (CVEs) on the 2026 scoreboard by how l
 
 3. **Some descriptions give the answer away.** Phrases like "is aware of a report that this may have been exploited" report an attack that has already happened. In 2025, 5 of the 29 descriptions with this kind of wording later reached KEV. These phrases are removed before any model reads the text. Otherwise the model would learn to look for the phrase, and it would fail on new CVEs, which don't have it yet.
 
-4. **Some database fields also give the answer away.** NIST, which runs the US vulnerability database, reviews attacked CVEs first. So fields such as review status, number of references and number of affected products fill in *after* an attack. A model given only these fields plus exploit signals scores 21 hits, more than Bullseye, without knowing anything about the bug. All of these fields were left out.
+4. **Some database fields also give the answer away.** NIST, which runs the US vulnerability database, reviews attacked CVEs first. So fields such as review status, number of references and number of affected products fill in *after* an attack. A model given only these fields plus exploit signals catches 21 attacked CVEs in its top 500, more than Bullseye, without knowing anything about the bug. All of these fields were left out.
 
 5. **Early-year CVEs have more time to be caught.** A January CVE has 276 days before the Nov 4 judging date; a September CVE has 34. Of CVEs added to KEV after their first month, 90% were added within 276 days, but only 25% within 34. So the model is told how many days each CVE has left.
 
@@ -62,16 +62,18 @@ No outside data was used.
 
 The test mirrors the scoreboard: train on 2024 (KEV known to Dec 31, 2024), rank the January–September 2025 CVEs not yet on KEV, then count how many were added by Nov 4, 2025.
 
-| Ranking | Hits in top 500 | Likely range* | Hits in top 50 |
-| --- | --- | --- | --- |
-| CVSS first | 5.7 | 2–10 | 3 |
-| EPSS first | 8 | 4–13 | 3 |
-| Exploit code, then EPSS | 17.4 | 11–24 | 4 |
-| **Bullseye** | **20** | **13–27** | **10** |
+Each method picks the bugs to patch first. The table counts how many of its picks were later attacked.
 
-\*90% range from resampling the test set.
+| Method | Attacked, of its top 500 | Attacked, of its first 50 |
+| --- | --- | --- |
+| Highest severity score (CVSS) first | 5.7 | 3 |
+| Highest EPSS first | 8 | 3 |
+| Exploit code first, then EPSS | 17.4 | 4 |
+| **Bullseye** | **20** | **10** |
 
-- **The numbers are noisy:** only 48 CVEs in the 2025 test were later exploited. Across nine model settings, Bullseye beat the best standard ranking by 2.1 hits on average. The gain is small and could partly be luck. The clearest gain is in the top 50.
+Decimals are averages: those methods give many bugs the same score, and the count depends on which tied bugs land in the 500.
+
+- **Luck plays a part:** only 48 CVEs in the 2025 test were later exploited, so a gap of 2 or 3 could be chance. Across nine model settings, Bullseye beat the best standard method by 2.1 on average. The clearest gain is in the first 50 picks.
 - **No tuning on the test year:** model settings were left at their defaults.
 - **Which signals matter:** each group of signals was removed in turn. Exploit signals, description flags and days left mattered most. Removing CVSS *raised* the score (15 → 18), more evidence that severity says little about what gets attacked. Nothing was removed from the final model on this basis, since that would be tuning on the test year.
 - **Two ideas tested and dropped,** because each added well under 1 hit:
@@ -89,10 +91,11 @@ The test mirrors the scoreboard: train on 2024 (KEV known to Dec 31, 2024), rank
 1. **Granite embeddings** (`granite-embedding-small-english-r2`, run locally):
    - The model turns each of 201,940 descriptions into numbers that capture its meaning. The give-away phrases are removed first.
    - A simple model trained on every KEV entry since 2015 then learns what exploited bugs tend to sound like. No CVE is scored by a model that saw its own answer.
-   - Alone this score is weak (5 hits), and it didn't help the decision-tree model by itself. Added to the blend, it raised hits by 2.0 on average across nine settings.
+   - Alone this score is weak (5 attacked CVEs in its top 500), and it didn't help the decision-tree model by itself. Added to the blend, it raised the count by 2.0 on average across nine settings.
 2. **Granite chat on watsonx.ai** (`granite-4-h-small`):
    - It writes the one-line "why fix this first" for each pick: the product, what an attacker can do, and the reason to act now. For example: *"Qwik framework allows unauthenticated remote code execution via unsafe deserialization; public exploit code exists and EPSS ranks it in the top 1% this month."*
    - It only sees facts already in the data and doesn't change the ranking.
+   - Every line was checked automatically for version numbers, attack claims and wrong EPSS figures, and the top ones were read against their descriptions. One line overstated the bug and was corrected by hand; it is marked as corrected in the data and the app.
    - Lines exist for the top 402 picks; the free-tier token quota ran out after that, and the remaining 98 show the model's reasons instead.
    - It is told not to claim attacks or mention versions. Versions were banned after an early test where it named the fixed version as the vulnerable one.
 
